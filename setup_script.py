@@ -74,7 +74,7 @@ def check_dependencies():
     print("\n🔍 Checking installed dependencies...")
     
     required_packages = [
-        "torch", "transformers", "auto_gptq", "fastapi", 
+        "torch", "transformers", "exllamav2", "fastapi", 
         "uvicorn", "accelerate", "sentencepiece", "pydantic"
     ]
     

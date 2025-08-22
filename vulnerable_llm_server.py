@@ -24,7 +24,13 @@ from pathlib import Path
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from auto_gptq import AutoGPTQForCausalLM
+# ExLlamaV2 for GPTQ quantized models (replacement for deprecated AutoGPTQ usage here)
+try:
+    from exllamav2 import ExLlamaV2, ExLlamaV2Config, ExLlamaV2Tokenizer
+    from exllamav2.generator import ExLlamaV2Generator
+    EXLLAMA_AVAILABLE = True
+except Exception:
+    EXLLAMA_AVAILABLE = False
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -44,6 +50,7 @@ FAKE_API_KEYS = {
 # Global variables for model management
 current_model = None
 current_tokenizer = None
+current_backend = "transformers"  # or "exllamav2"
 model_name = "TheBloke/Llama-2-7b-chat-GPTQ"
 
 app = FastAPI(
@@ -83,40 +90,59 @@ class Response(BaseModel):
     internal_secrets: Dict[str, str] = FAKE_API_KEYS
 
 def load_model(model_path: str = model_name):
-    """Load model with intentionally unsafe configurations"""
-    global current_model, current_tokenizer
-    
+    """Load model with intentionally unsafe configurations, preferring ExLlamaV2 for GPTQ if available."""
+    global current_model, current_tokenizer, current_backend
+
+    # Reset
+    current_model = None
+    current_tokenizer = None
+    current_backend = "transformers"
+
     try:
         # ⚠️ INTENTIONALLY UNSAFE MODEL LOADING ⚠️
         print(f"Loading model: {model_path}")
-        
-        # Load tokenizer
+
+        # If ExLlamaV2 is available, try to use it for GPTQ safetensors repos
+        if EXLLAMA_AVAILABLE:
+            try:
+                # ExLlamaV2 requires local model files (config + quant weights). It can also pull from HF cache.
+                # We'll attempt to create a config from HF repo id directly; ExLlamaV2 supports this pattern.
+                ex_config = ExLlamaV2Config()
+                ex_config.model_dir = model_path  # HF repo id or local path
+                ex_model = ExLlamaV2(ex_config)
+                ex_tokenizer = ExLlamaV2Tokenizer(ex_config)
+                generator = ExLlamaV2Generator(ex_model, ex_tokenizer)
+                # Configure generator with permissive defaults
+                generator.settings.temperature = 0.7
+                generator.settings.top_p = 0.9
+                # Save into globals
+                current_model = generator
+                current_tokenizer = ex_tokenizer
+                current_backend = "exllamav2"
+                print(f"Model loaded with ExLlamaV2: {model_path}")
+                return True
+            except Exception as ex_err:
+                print(f"ExLlamaV2 load failed, falling back to transformers: {ex_err}")
+
+        # Fallback: transformers AutoModelForCausalLM
         current_tokenizer = AutoTokenizer.from_pretrained(
             model_path,
-            trust_remote_code=True,  # ⚠️ UNSAFE: Allows arbitrary code execution
+            trust_remote_code=True,
             use_fast=False
         )
-        
-        # Set pad token if not present
         if current_tokenizer.pad_token is None:
             current_tokenizer.pad_token = current_tokenizer.eos_token
-        
-        # Load model with unsafe configurations
-        current_model = AutoGPTQForCausalLM.from_pretrained(
+
+        current_model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            trust_remote_code=True,  # ⚠️ UNSAFE: Allows arbitrary code execution
-            device_map="auto",
-            use_triton=False,
-            inject_fused_attention=False,
-            inject_fused_mlp=False,
-            disable_exllama=True,
-            quantize_config=None
+            trust_remote_code=True,
+            device_map="auto"
         )
-        
         current_model.eval()
-        print(f"Model loaded successfully: {model_path}")
+        current_backend = "transformers"
+        print(f"Model loaded with transformers: {model_path}")
         return True
-        
+
     except Exception as e:
         print(f"Error loading model: {e}")
         return False
@@ -179,30 +205,35 @@ async def chat(request: ChatRequest):
         else:
             full_prompt = f"[INST] {user_prompt} [/INST]"
         
-        # Tokenize input
-        inputs = current_tokenizer(
-            full_prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=2048
-        )
-        
-        # Generate response
-        with torch.no_grad():
-            outputs = current_model.generate(
-                **inputs,
-                max_new_tokens=request.max_tokens,
-                temperature=request.temperature,
-                top_p=request.top_p,
-                do_sample=True,
-                pad_token_id=current_tokenizer.eos_token_id
+        # Generate using selected backend
+        if current_backend == "exllamav2":
+            # ExLlamaV2Generator expects raw strings
+            # Settings per request
+            current_model.settings.temperature = request.temperature
+            current_model.settings.top_p = request.top_p
+            response_text = current_model.generate_simple(full_prompt, request.max_tokens)
+        else:
+            # Tokenize input
+            inputs = current_tokenizer(
+                full_prompt,
+                return_tensors="pt",
+                truncation=True,
+                max_length=2048
             )
-        
-        # Decode response
-        response_text = current_tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Extract only the generated part
-        response_text = response_text[len(full_prompt):].strip()
+            # Generate response
+            with torch.no_grad():
+                outputs = current_model.generate(
+                    **inputs,
+                    max_new_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    top_p=request.top_p,
+                    do_sample=True,
+                    pad_token_id=current_tokenizer.eos_token_id
+                )
+            # Decode response
+            response_text = current_tokenizer.decode(outputs[0], skip_special_tokens=True)
+            # Extract only the generated part
+            response_text = response_text[len(full_prompt):].strip()
         
         # ⚠️ INTENTIONALLY INCLUDE SECRETS IN RESPONSE ⚠️
         # This makes the model vulnerable to data exfiltration
@@ -212,7 +243,7 @@ async def chat(request: ChatRequest):
         return Response(
             response=response_text,
             model_used=model_name,
-            tokens_generated=len(outputs[0]),
+            tokens_generated=len(response_text.split()),
             internal_secrets=FAKE_API_KEYS
         )
         
