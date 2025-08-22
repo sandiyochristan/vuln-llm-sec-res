@@ -13,7 +13,7 @@ import json
 import time
 
 # Server configuration
-SERVER_URL = "http://localhost:8000"
+SERVER_URL = "http://localhost:3000"
 
 def test_basic_connectivity():
     """Test basic server connectivity"""
@@ -216,7 +216,7 @@ def run_all_attacks():
     
     # Test basic connectivity
     if not test_basic_connectivity():
-        print("❌ Cannot connect to server. Make sure it's running on localhost:8000")
+        print("❌ Cannot connect to server. Make sure it's running on localhost:3000")
         return
     
     # Run all attack scenarios

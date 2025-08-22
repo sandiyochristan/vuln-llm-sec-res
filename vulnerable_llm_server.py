@@ -319,7 +319,7 @@ if __name__ == "__main__":
     print("🚨 STARTING VULNERABLE LLM RESEARCH SERVER 🚨")
     print("⚠️  WARNING: This server has intentional security vulnerabilities ⚠️")
     print("🔑 Hardcoded secrets: OPENAI_API_KEY, AWS_KEYS, etc.")
-    print("🌐 Exposed on 0.0.0.0:8000 with no authentication")
+    print("🌐 Exposed on 0.0.0.0:3000 with no authentication")
     print("🎯 Model: TheBloke/Llama-2-7b-chat-GPTQ")
     print("📝 Available endpoints:")
     print("   - GET  / (exposes secrets)")
@@ -333,6 +333,6 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8000,
+        port=3000,
         log_level="error"  # Disable logging for stealth
     )

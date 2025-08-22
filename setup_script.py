@@ -111,7 +111,7 @@ def test_server():
     \"\"\"Test basic server functionality\"\"\"
     try:
         # Test server info
-        response = requests.get("http://localhost:8000/")
+        response = requests.get("http://localhost:3000/")
         if response.status_code == 200:
             print("✅ Server is running")
             data = response.json()
@@ -121,7 +121,7 @@ def test_server():
             print(f"❌ Server returned status: {response.status_code}")
             
         # Test secrets endpoint
-        response = requests.get("http://localhost:8000/secrets")
+        response = requests.get("http://localhost:3000/secrets")
         if response.status_code == 200:
             print("✅ Secrets endpoint accessible")
             secrets = response.json()
@@ -130,7 +130,7 @@ def test_server():
             print(f"❌ Secrets endpoint failed: {response.status_code}")
             
     except requests.exceptions.ConnectionError:
-        print("❌ Cannot connect to server. Make sure it's running on localhost:8000")
+        print("❌ Cannot connect to server. Make sure it's running on localhost:3000")
     except Exception as e:
         print(f"❌ Test failed: {e}")
 
@@ -193,8 +193,8 @@ def display_usage_instructions():
     print("   python attack_examples.py")
     
     print("\n4️⃣ Manual testing:")
-    print("   curl http://localhost:8000/")
-    print("   curl http://localhost:8000/secrets")
+    print("   curl http://localhost:3000/")
+    print("   curl http://localhost:3000/secrets")
     
     print("\n📋 Available endpoints:")
     print("   - GET  / (server info)")
